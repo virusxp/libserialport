@@ -3,7 +3,12 @@
 
 #include <string>
 #include <exception>
-#include <asm/termios.h>
+#include <asm/termbits.h>
+#include <list>
+#include <mutex>
+#include <thread>
+
+#include "tools/synccharfifo.h"
 
 #define SP_1_STOP_BIT   0x01
 #define SP_1_5_STOP_BIT 0x02
@@ -32,12 +37,52 @@ typedef struct SerialPortConfig_t {
     char xx[2];
 } SerialPortConfig;
 
+class SerialPortWThread {
+private:
+    int serialPortFP;
+    std::mutex* rw;
+    SyncCharFiFo* FiFo;
+    volatile bool breakThis;
+
+public:
+    SerialPortWThread(int fp, std::mutex* wrMutex, SyncCharFiFo* rwFiFo, volatile bool* killSig);
+    virtual ~SerialPortWThread();
+
+    void operator()() const;
+};
+
+class SerialPortRThread {
+private:
+    int serialPortFP;
+    std::mutex* rw;
+    SyncCharFiFo* FiFo;
+    volatile bool breakThis;
+
+public:
+    SerialPortRThread(int fp, std::mutex* wrMutex, SyncCharFiFo* rwFiFo, volatile bool* killSig);
+    virtual ~SerialPortRThread();
+
+    void operator()() const;
+};
+
 class SerialPort {
 private:
     int serialPortFptr = 0;
     SerialPortConfig serialConfig;
     std::string portName;
     struct termios2 oldtio;
+
+    SerialPortWThread* writeTask;
+    SerialPortRThread* readTask;
+    SyncCharFiFo serialWriterFiFo;
+    SyncCharFiFo serialReaderFiFo;
+    volatile bool breakThreads = false;
+    std::thread* writerThreadPtr;
+    std::thread* readerThreadPtr;
+    std::mutex* writeReadMutex;
+
+    //static void writerThread(int fp, bool* breakThreads, std::mutex* wrMutex, SyncCharFiFo* wrFiFo);
+    //static void readerThread(int fp, bool* breakThreads, std::mutex* wrMutex, SyncCharFiFo* rdFiFo);
 
 public:
     SerialPort(std::string portname, SerialPortConfig* config = NULL);
